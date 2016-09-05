@@ -398,7 +398,11 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements SupportsAuthoriza
    * @param string $customer_id
    *   The remote customer ID, if available.
    *
+<<<<<<< 13c3b18bf0cd8990e35065b772f5496e03678df8
    * @return \CommerceGuys\AuthNet\DataTypes\PaymentProfile
+=======
+   * @return \mglaman\AuthNet\DataTypes\PaymentProfile
+>>>>>>> Initial 2.x port commit
    *   The payment profile data type.
    */
   protected function buildCustomerPaymentProfile(PaymentMethodInterface $payment_method, array $payment_details, $customer_id = NULL) {
