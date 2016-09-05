@@ -1,0 +1,12 @@
+commerce_payment.commerce_payment_gateway.plugin.authorizenet:
+  type: commerce_payment_gateway_configuration
+  mapping:
+    api_login:
+      type: string
+      label: 'Login ID'
+    transaction_key:
+      type: string
+      label: 'Transaction key'
+    transaction_type:
+      type: string
+      label: 'Transaction type'
