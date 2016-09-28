@@ -190,7 +190,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
 
     $transactionRequest = new TransactionRequest([
       'transactionType' => ($capture) ? TransactionRequest::AUTH_CAPTURE : TransactionRequest::AUTH_ONLY,
-      'amount' => $payment->getAmount()->getDecimalAmount(),
+      'amount' => $payment->getAmount()->getNumber(),
     ]);
     // @todo update SDK to support data type like this.
     $transactionRequest->addDataType(new Profile([
@@ -240,7 +240,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $request = new CreateTransactionRequest($this->authnetConfiguration, $this->httpClient);
     $request->setTransactionRequest(new TransactionRequest([
       'transactionType' => TransactionRequest::PRIOR_AUTH_CAPTURE,
-      'amount' => $amount->getDecimalAmount(),
+      'amount' => $amount->getNumber(),
       'refTransId' => $payment->getRemoteId(),
     ]));
     $response = $request->execute();
@@ -269,7 +269,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $request = new CreateTransactionRequest($this->authnetConfiguration, $this->httpClient);
     $request->setTransactionRequest(new TransactionRequest([
       'transactionType' => TransactionRequest::VOID,
-      'amount' => $payment->getAmount()->getDecimalAmount(),
+      'amount' => $payment->getAmount()->getNumber(),
       'refTransId' => $payment->getRemoteId(),
     ]));
     $response = $request->execute();
@@ -302,7 +302,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $request = new CreateTransactionRequest($this->authnetConfiguration, $this->httpClient);
     $transaction_request = new TransactionRequest([
       'transactionType' => TransactionRequest::REFUND,
-      'amount' => $payment->getAmount()->getDecimalAmount(),
+      'amount' => $payment->getAmount()->getNumber(),
       'refTransId' => $payment->getRemoteId(),
     ]);
     /** @var \Drupal\commerce_payment\Entity\PaymentMethod $payment_method */
@@ -482,8 +482,8 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $names = explode(' ', $address->getRecipient());
     $payment_profile->addBillTo(new BillTo([
       // @todo how to allow customizing this.
-      'firstName' => array_shift($names),
-      'lastName' => implode(' ', $names),
+      'firstName' => $address->getGivenName(),
+      'lastName' => $address->getFamilyName(),
       'company' => $address->getOrganization(),
       'address' => $address->getAddressLine1() . ' ' . $address->getAddressLine2(),
       // @todo Use locality  / administrative area codes where available.
