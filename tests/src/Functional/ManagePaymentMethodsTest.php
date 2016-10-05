@@ -40,7 +40,7 @@ class ManagePaymentMethodsTest extends CommerceBrowserTestBase {
    */
   protected function getAdministratorPermissions() {
     return array_merge([
-      'administer payments',
+      'administer commerce_payment',
     ], parent::getAdministratorPermissions());
   }
 
