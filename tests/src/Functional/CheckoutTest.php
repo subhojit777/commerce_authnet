@@ -54,7 +54,7 @@ class CheckoutTest extends CommerceBrowserTestBase {
       'type' => 'default',
       'sku' => strtolower($this->randomMachineName()),
       'price' => [
-        'amount' => 9.99,
+        'number' => '9.99',
         'currency_code' => 'USD',
       ],
     ]);
@@ -82,12 +82,12 @@ class CheckoutTest extends CommerceBrowserTestBase {
     $gateway->save();
 
     // Cheat so we don't need JS to interact w/ Address field widget.
-    /** @var \Drupal\Core\Entity\Display\EntityFormDisplayInterface $billing_form_display */
-    $billing_form_display = EntityFormDisplay::load('profile.billing.default');
-    $address_component = $billing_form_display->getComponent('address');
+    /** @var \Drupal\Core\Entity\Display\EntityFormDisplayInterface $customer_form_display */
+    $customer_form_display = EntityFormDisplay::load('profile.customer.default');
+    $address_component = $customer_form_display->getComponent('address');
     $address_component['settings']['default_country'] = 'US';
-    $billing_form_display->setComponent('address', $address_component);
-    $billing_form_display->save();
+    $customer_form_display->setComponent('address', $address_component);
+    $customer_form_display->save();
   }
 
   /**
@@ -104,18 +104,18 @@ class CheckoutTest extends CommerceBrowserTestBase {
     $this->submitForm([], 'Checkout');
     $this->assertSession()->pageTextNotContains('Order Summary');
     $this->submitForm([], 'Continue as Guest');
-    // @todo This works when not in test. But an illegal choice error thrown?
     $this->submitForm([
       'contact_information[email]' => 'guest@example.com',
       'contact_information[email_confirm]' => 'guest@example.com',
       'payment_information[add_payment_method][payment_details][number]' => '4111111111111111',
-      'payment_information[add_payment_method][payment_details][expiration][month]' => '2',
+      'payment_information[add_payment_method][payment_details][expiration][month]' => '02',
       'payment_information[add_payment_method][payment_details][expiration][year]' => '2020',
       'payment_information[add_payment_method][payment_details][security_code]' => '123',
-      'payment_information[add_payment_method][billing_information][address][0][recipient]' => 'Johnny Appleseed',
+      'payment_information[add_payment_method][billing_information][address][0][given_name]' => 'Johnny',
+      'payment_information[add_payment_method][billing_information][address][0][family_name]' => 'Appleseed',
       'payment_information[add_payment_method][billing_information][address][0][address_line1]' => '123 New York Drive',
       'payment_information[add_payment_method][billing_information][address][0][locality]' => 'New York City',
-      'payment_information[add_payment_method][billing_information][address][0][administrative_area]' => 'US-NY',
+      'payment_information[add_payment_method][billing_information][address][0][administrative_area]' => 'NY',
       'payment_information[add_payment_method][billing_information][address][0][postal_code]' => '10001',
     ], 'Continue to review');
 
@@ -141,16 +141,16 @@ class CheckoutTest extends CommerceBrowserTestBase {
     $cart_link->click();
     $this->submitForm([], 'Checkout');
     $this->assertSession()->pageTextContains('Order Summary');
-    // @todo This works when not in test. But an illegal choice error thrown?
     $this->submitForm([
       'payment_information[add_payment_method][payment_details][number]' => '4111111111111111',
-      'payment_information[add_payment_method][payment_details][expiration][month]' => '2',
+      'payment_information[add_payment_method][payment_details][expiration][month]' => '02',
       'payment_information[add_payment_method][payment_details][expiration][year]' => '2020',
       'payment_information[add_payment_method][payment_details][security_code]' => '123',
-      'payment_information[add_payment_method][billing_information][address][0][recipient]' => 'Johnny Appleseed',
+      'payment_information[add_payment_method][billing_information][address][0][given_name]' => 'Johnny',
+      'payment_information[add_payment_method][billing_information][address][0][family_name]' => 'Appleseed',
       'payment_information[add_payment_method][billing_information][address][0][address_line1]' => '123 New York Drive',
       'payment_information[add_payment_method][billing_information][address][0][locality]' => 'New York City',
-      'payment_information[add_payment_method][billing_information][address][0][administrative_area]' => 'US-NY',
+      'payment_information[add_payment_method][billing_information][address][0][administrative_area]' => 'NY',
       'payment_information[add_payment_method][billing_information][address][0][postal_code]' => '10001',
     ], 'Continue to review');
     $this->assertSession()->pageTextContains('Contact information');
