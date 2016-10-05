@@ -478,8 +478,6 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     ]);
     /** @var \Drupal\address\AddressInterface $address */
     $address = $payment_method->getBillingProfile()->address->first();
-    // @todo wait for first/last split.
-    $names = explode(' ', $address->getRecipient());
     $payment_profile->addBillTo(new BillTo([
       // @todo how to allow customizing this.
       'firstName' => $address->getGivenName(),
