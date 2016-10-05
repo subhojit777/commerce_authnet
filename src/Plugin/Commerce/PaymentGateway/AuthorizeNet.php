@@ -183,7 +183,6 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       throw new HardDeclineException('The provided payment method has expired');
     }
 
-
     $order = $payment->getOrder();
     $owner = $payment_method->getOwner();
     $customer_id = $owner->commerce_remote_id->getByProvider('commerce_authnet_' . $this->getPluginId());
@@ -203,7 +202,6 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       'invoiceNumber' => $order->getOrderNumber(),
     ]));
     $transactionRequest->addData('customerIP', $order->getIpAddress());
-
 
     $request = new CreateTransactionRequest($this->authnetConfiguration, $this->httpClient);
     $request->setTransactionRequest($transactionRequest);

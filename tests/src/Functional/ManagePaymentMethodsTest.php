@@ -3,7 +3,6 @@
 namespace Drupal\Tests\commerce_authnet\Functional;
 
 use Drupal\commerce_payment\Entity\PaymentGateway;
-use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\SupportsStoredPaymentMethodsInterface;
 use Drupal\commerce_store\StoreCreationTrait;
 use Drupal\Core\Entity\Entity\EntityFormDisplay;
 use Drupal\Core\Url;
@@ -21,7 +20,7 @@ class ManagePaymentMethodsTest extends CommerceBrowserTestBase {
   /**
    * The current user.
    *
-   * @var \Drupal\Core\Session\AccountInterface;
+   * @var \Drupal\Core\Session\AccountInterface
    */
   protected $account;
 
