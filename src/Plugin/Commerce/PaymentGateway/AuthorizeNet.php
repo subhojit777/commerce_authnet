@@ -135,7 +135,11 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     parent::validateConfigurationForm($form, $form_state);
     $values = $form_state->getValue($form['#parents']);
 
-    $request = new XmlRequest($this->authnetConfiguration, $this->httpClient, 'authenticateTestRequest');
+    $request = new XmlRequest(new Configuration([
+      'sandbox' => ($values['mode'] == 'test'),
+      'api_login' => $values['api_login'],
+      'transaction_key' => $values['transaction_key'],
+    ]), $this->httpClient, 'authenticateTestRequest');
     $request->addDataType(new MerchantAuthentication([
       'name' => $values['api_login'],
       'transactionKey' => $values['transaction_key'],
