@@ -144,9 +144,9 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
 
     if ($response->getResultCode() != 'Ok') {
       foreach ($response->getMessages() as $message) {
-        drupal_set_message($this->t('@code: @message', [
-          '@code' => $message['code'],
-          '@message' => $message['text'],
+        $form_state->setErrorByName('api_login', $this->t('@code: @message', [
+          '@code' => $message->getCode(),
+          '@message' => $message->getText(),
         ]));
       }
     }
