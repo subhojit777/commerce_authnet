@@ -107,7 +107,7 @@ class CheckoutTest extends CommerceBrowserTestBase {
     $this->submitForm([
       'contact_information[email]' => 'guest@example.com',
       'contact_information[email_confirm]' => 'guest@example.com',
-      'payment_information[add_payment_method][payment_details][number]' => '4111111111111111',
+      'payment_information[add_payment_method][payment_details][number]' => '411111111111111',
       'payment_information[add_payment_method][payment_details][expiration][month]' => '02',
       'payment_information[add_payment_method][payment_details][expiration][year]' => '2020',
       'payment_information[add_payment_method][payment_details][security_code]' => '123',
@@ -118,6 +118,9 @@ class CheckoutTest extends CommerceBrowserTestBase {
       'payment_information[add_payment_method][billing_information][address][0][administrative_area]' => 'NY',
       'payment_information[add_payment_method][billing_information][address][0][postal_code]' => '10001',
     ], 'Continue to review');
+    $this->assertSession()->pageTextContains('You have entered an invalid credit card number.');
+    $this->getSession()->getPage()->fillField('payment_information[add_payment_method][payment_details][number]', '4111111111111111');
+    $this->submitForm([], 'Continue to review');
 
     $this->assertSession()->pageTextContains('Contact information');
     $this->assertSession()->pageTextContains('guest@example.com');

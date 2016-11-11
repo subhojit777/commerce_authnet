@@ -207,6 +207,11 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $request->setTransactionRequest($transactionRequest);
     $response = $request->execute();
 
+    if (!empty($response->getErrors())) {
+      $message = $response->getErrors()[0];
+      throw new \Exception($message->getText(), $message->getCode());
+    }
+
     if ($response->getResultCode() != 'Ok') {
       $message = $response->getMessages()[0];
       throw new \Exception($message->getText(), $message->getCode());
