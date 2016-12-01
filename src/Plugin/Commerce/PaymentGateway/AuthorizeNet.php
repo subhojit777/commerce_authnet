@@ -7,6 +7,7 @@ use Drupal\commerce_payment\Entity\PaymentInterface;
 use Drupal\commerce_payment\Entity\PaymentMethodInterface;
 use Drupal\commerce_payment\Exception\HardDeclineException;
 use Drupal\commerce_payment\Exception\InvalidRequestException;
+use Drupal\commerce_payment\Exception\InvalidResponseException;
 use Drupal\commerce_payment\Exception\PaymentGatewayException;
 use Drupal\commerce_payment\PaymentMethodTypeManager;
 use Drupal\commerce_payment\PaymentTypeManager;
@@ -212,14 +213,23 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $request->setTransactionRequest($transactionRequest);
     $response = $request->execute();
 
-    if (!empty($response->getErrors())) {
-      $message = $response->getErrors()[0];
-      throw new PaymentGatewayException($message->getText());
-    }
-
     if ($response->getResultCode() != 'Ok') {
       $message = $response->getMessages()[0];
-      throw new PaymentGatewayException($message->getText());
+      switch ($message->getCode()) {
+        case 'E00040':
+          $payment_method->delete();
+          throw new PaymentGatewayException('The provided payment method is no longer valid');
+          break;
+
+        default:
+          throw new PaymentGatewayException($message->getText());
+          break;
+      }
+    }
+
+    if (!empty($response->getErrors())) {
+      $message = $response->getErrors()[0];
+      throw new HardDeclineException($message->getText());
     }
 
     $payment->state = $capture ? 'capture_completed' : 'authorization';
@@ -395,9 +405,22 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       $response = $request->execute();
 
       if ($response->getResultCode() != 'Ok') {
-        // Check for duplicate payment profile error.
-        if ($response->getMessages()[0]->getCode() != 'E00039') {
-          throw new HardDeclineException("Unable to create payment profile for existing customer");
+        $error = $response->getMessages()[0];
+        switch ($error->getCode()) {
+          case 'E00039':
+            if (!isset($response->customerPaymentProfileId)) {
+              throw new InvalidResponseException('Duplicate payment profile ID, however could not get existing ID.');
+            }
+            break;
+          case 'E00040':
+            // The customer record ID is invalid, remove it.
+            // @note this should only happen in development scenarios.
+            $owner->commerce_remote_id->setByProvider('commerce_authnet_' . $this->getPluginId(), NULL);
+            $owner->save();
+            throw new InvalidResponseException('The customer record could not be found');
+            break;
+          default:
+            throw new InvalidResponseException($error->getText());
         }
       }
 
@@ -440,13 +463,13 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
           $response = $request->execute();
 
           if ($response->getResultCode() != 'Ok') {
-            throw new HardDeclineException("Unable to create payment profile for existing customer");
+            throw new InvalidResponseException("Unable to create payment profile for existing customer");
           }
 
           $payment_profile_id = $response->customerPaymentProfileId;
         }
         else {
-          throw new HardDeclineException("Unable to create customer profile.");
+          throw new InvalidResponseException("Unable to create customer profile.");
         }
       }
 
