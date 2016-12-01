@@ -7,6 +7,7 @@ use Drupal\commerce_payment\Entity\PaymentInterface;
 use Drupal\commerce_payment\Entity\PaymentMethodInterface;
 use Drupal\commerce_payment\Exception\HardDeclineException;
 use Drupal\commerce_payment\Exception\InvalidRequestException;
+use Drupal\commerce_payment\Exception\PaymentGatewayException;
 use Drupal\commerce_payment\PaymentMethodTypeManager;
 use Drupal\commerce_payment\PaymentTypeManager;
 use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OnsitePaymentGatewayBase;
@@ -213,12 +214,12 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
 
     if (!empty($response->getErrors())) {
       $message = $response->getErrors()[0];
-      throw new \Exception($message->getText(), $message->getCode());
+      throw new PaymentGatewayException($message->getText());
     }
 
     if ($response->getResultCode() != 'Ok') {
       $message = $response->getMessages()[0];
-      throw new \Exception($message->getText(), $message->getCode());
+      throw new PaymentGatewayException($message->getText());
     }
 
     $payment->state = $capture ? 'capture_completed' : 'authorization';
@@ -254,7 +255,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
 
     if ($response->getResultCode() != 'Ok') {
       $message = $response->getMessages()[0];
-      throw new \Exception($message->getText(), $message->getCode());
+      throw new PaymentGatewayException($message->getText());
     }
 
     $payment->state = 'capture_completed';
@@ -283,7 +284,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
 
     if ($response->getResultCode() != 'Ok') {
       $message = $response->getMessages()[0];
-      throw new \Exception($message->getText(), $message->getCode());
+      throw new PaymentGatewayException($message->getText());
     }
 
     $payment->state = 'authorization_voided';
@@ -323,7 +324,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
 
     if ($response->getResultCode() != 'Ok') {
       $message = $response->getMessages()[0];
-      throw new \Exception($message->getText(), $message->getCode());
+      throw new PaymentGatewayException($message->getText());
     }
 
     $old_refunded_amount = $payment->getRefundedAmount();
