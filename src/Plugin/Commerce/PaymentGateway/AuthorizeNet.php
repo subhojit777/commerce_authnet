@@ -542,6 +542,17 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $request = new DeleteCustomerPaymentProfileRequest($this->authnetConfiguration, $this->httpClient);
     $request->setCustomerProfileId($customer_id);
     $request->setCustomerPaymentProfileId($payment_method->getRemoteId());
+    $response = $request->execute();
+
+    if ($response->getResultCode() != 'Ok') {
+      $message = $response->getMessages()[0];
+      // If the error is not "record not found" throw an error.
+      if ($message->getCode() != 'E00040') {
+        throw new InvalidResponseException("Unable to delete payment method");
+      }
+    }
+
+    $payment_method->delete();
   }
 
   /**
