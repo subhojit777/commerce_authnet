@@ -2,6 +2,7 @@
 
 namespace Drupal\commerce_authnet\Plugin\Commerce\PaymentGateway;
 
+use CommerceGuys\AuthNet\Response\ResponseInterface;
 use Drupal\commerce_payment\CreditCard;
 use Drupal\commerce_payment\Entity\PaymentInterface;
 use Drupal\commerce_payment\Entity\PaymentMethodInterface;
@@ -29,6 +30,7 @@ use CommerceGuys\AuthNet\DataTypes\Profile;
 use CommerceGuys\AuthNet\DataTypes\TransactionRequest;
 use CommerceGuys\AuthNet\DeleteCustomerPaymentProfileRequest;
 use CommerceGuys\AuthNet\Request\XmlRequest;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -61,11 +63,19 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
   protected $httpClient;
 
   /**
+   * The logger.
+   *
+   * @var \Psr\Log\LoggerInterface
+   */
+  protected $logger;
+
+  /**
    * {@inheritdoc}
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entity_type_manager, PaymentTypeManager $payment_type_manager, PaymentMethodTypeManager $payment_method_type_manager, ClientInterface $client) {
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entity_type_manager, PaymentTypeManager $payment_type_manager, PaymentMethodTypeManager $payment_method_type_manager, ClientInterface $client, LoggerInterface $logger) {
     parent::__construct($configuration, $plugin_id, $plugin_definition, $entity_type_manager, $payment_type_manager, $payment_method_type_manager);
     $this->httpClient = $client;
+    $this->logger = $logger;
     $this->authnetConfiguration = new Configuration([
       'sandbox' => ($this->getMode() == 'test'),
       'api_login' => $this->configuration['api_login'],
@@ -84,7 +94,8 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       $container->get('entity_type.manager'),
       $container->get('plugin.manager.commerce_payment_type'),
       $container->get('plugin.manager.commerce_payment_method_type'),
-      $container->get('http_client')
+      $container->get('http_client'),
+      $container->get('commerce_authnet.logger')
     );
   }
 
@@ -149,12 +160,8 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $response = $request->sendRequest();
 
     if ($response->getResultCode() != 'Ok') {
-      foreach ($response->getMessages() as $message) {
-        $form_state->setErrorByName('api_login', $this->t('@code: @message', [
-          '@code' => $message->getCode(),
-          '@message' => $message->getText(),
-        ]));
-      }
+      $this->logResponse($response);
+      drupal_set_message($this->describeResponse($response), 'error');
     }
 
   }
@@ -214,16 +221,15 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $response = $request->execute();
 
     if ($response->getResultCode() != 'Ok') {
+      $this->logResponse($response);
       $message = $response->getMessages()[0];
       switch ($message->getCode()) {
         case 'E00040':
           $payment_method->delete();
           throw new PaymentGatewayException('The provided payment method is no longer valid');
-          break;
 
         default:
           throw new PaymentGatewayException($message->getText());
-          break;
       }
     }
 
@@ -264,6 +270,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $response = $request->execute();
 
     if ($response->getResultCode() != 'Ok') {
+      $this->logResponse($response);
       $message = $response->getMessages()[0];
       throw new PaymentGatewayException($message->getText());
     }
@@ -293,6 +300,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $response = $request->execute();
 
     if ($response->getResultCode() != 'Ok') {
+      $this->logResponse($response);
       $message = $response->getMessages()[0];
       throw new PaymentGatewayException($message->getText());
     }
@@ -333,6 +341,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $response = $request->execute();
 
     if ($response->getResultCode() != 'Ok') {
+      $this->logResponse($response);
       $message = $response->getMessages()[0];
       throw new PaymentGatewayException($message->getText());
     }
@@ -405,6 +414,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       $response = $request->execute();
 
       if ($response->getResultCode() != 'Ok') {
+        $this->logResponse($response);
         $error = $response->getMessages()[0];
         switch ($error->getCode()) {
           case 'E00039':
@@ -412,13 +422,14 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
               throw new InvalidResponseException('Duplicate payment profile ID, however could not get existing ID.');
             }
             break;
+
           case 'E00040':
             // The customer record ID is invalid, remove it.
             // @note this should only happen in development scenarios.
             $owner->commerce_remote_id->setByProvider('commerce_authnet_' . $this->getPluginId(), NULL);
             $owner->save();
             throw new InvalidResponseException('The customer record could not be found');
-            break;
+
           default:
             throw new InvalidResponseException($error->getText());
         }
@@ -463,12 +474,14 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
           $response = $request->execute();
 
           if ($response->getResultCode() != 'Ok') {
+            $this->logResponse($response);
             throw new InvalidResponseException("Unable to create payment profile for existing customer");
           }
 
           $payment_profile_id = $response->customerPaymentProfileId;
         }
         else {
+          $this->logResponse($response);
           throw new InvalidResponseException("Unable to create customer profile.");
         }
       }
@@ -545,6 +558,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $response = $request->execute();
 
     if ($response->getResultCode() != 'Ok') {
+      $this->logResponse($response);
       $message = $response->getMessages()[0];
       // If the error is not "record not found" throw an error.
       if ($message->getCode() != 'E00040') {
@@ -578,6 +592,39 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     }
 
     return $map[$card_type];
+  }
+
+  /**
+   * Writes an API response to the log for debugging.
+   *
+   * @param \CommerceGuys\AuthNet\Response\ResponseInterface $response
+   *   The API response object.
+   */
+  protected function logResponse(ResponseInterface $response) {
+    $message = $this->describeResponse($response);
+    $level = $response->getResultCode() === 'Error' ? 'error' : 'info';
+    $this->logger->log($level, $message);
+  }
+
+  /**
+   * Formats an API response as a string.
+   *
+   * @param \CommerceGuys\AuthNet\Response\ResponseInterface $response
+   *   The API response object.
+   *
+   * @return string
+   *   The message.
+   */
+  protected function describeResponse(ResponseInterface $response) {
+    $messages = [];
+    foreach ($response->getMessages() as $message) {
+      $messages[] = $message->getCode() . ': ' . $message->getText();
+    }
+
+    return $this->t('Received response with code %code from Authorize.net: @messages', [
+      '%code' => $response->getResultCode(),
+      '@messages' => implode("\n", $messages),
+    ]);
   }
 
 }
