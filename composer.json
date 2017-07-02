@@ -11,7 +11,7 @@
     }
   },
   "require": {
-    "drupal/commerce": "^2",
-    "commerceguys/authnet": "dev-master"
+    "drupal/commerce": "~2.0",
+    "commerceguys/authnet": "~1.0"
   }
 }
