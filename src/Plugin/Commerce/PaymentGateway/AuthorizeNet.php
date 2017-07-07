@@ -148,22 +148,23 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     parent::validateConfigurationForm($form, $form_state);
     $values = $form_state->getValue($form['#parents']);
 
-    $request = new XmlRequest(new Configuration([
-      'sandbox' => ($values['mode'] == 'test'),
-      'api_login' => $values['api_login'],
-      'transaction_key' => $values['transaction_key'],
-    ]), $this->httpClient, 'authenticateTestRequest');
-    $request->addDataType(new MerchantAuthentication([
-      'name' => $values['api_login'],
-      'transactionKey' => $values['transaction_key'],
-    ]));
-    $response = $request->sendRequest();
+    if (!empty($values['api_login']) && !empty($values['transaction_key'])) {
+      $request = new XmlRequest(new Configuration([
+        'sandbox' => ($values['mode'] == 'test'),
+        'api_login' => $values['api_login'],
+        'transaction_key' => $values['transaction_key'],
+      ]), $this->httpClient, 'authenticateTestRequest');
+      $request->addDataType(new MerchantAuthentication([
+        'name' => $values['api_login'],
+        'transactionKey' => $values['transaction_key'],
+      ]));
+      $response = $request->sendRequest();
 
-    if ($response->getResultCode() != 'Ok') {
-      $this->logResponse($response);
-      drupal_set_message($this->describeResponse($response), 'error');
+      if ($response->getResultCode() != 'Ok') {
+        $this->logResponse($response);
+        drupal_set_message($this->describeResponse($response), 'error');
+      }
     }
-
   }
 
   /**
