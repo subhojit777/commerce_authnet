@@ -328,14 +328,14 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $request = new CreateTransactionRequest($this->authnetConfiguration, $this->httpClient);
     $transaction_request = new TransactionRequest([
       'transactionType' => TransactionRequest::REFUND,
-      'amount' => $payment->getAmount()->getNumber(),
+      'amount' => $amount->getNumber(),
       'refTransId' => $payment->getRemoteId(),
     ]);
     /** @var \Drupal\commerce_payment\Entity\PaymentMethod $payment_method */
     $payment_method = $payment->getPaymentMethod();
     $transaction_request->addPayment(new CreditCardDataType([
       'cardNumber' => $payment_method->card_number->value,
-      'expirationDate' => $payment_method->expiration_month->value . $payment_method->expiration_year->value,
+      'expirationDate' => $payment_method->card_exp_month->value . $payment_method->card_exp_year->value,
     ]));
     $request->setTransactionRequest($transaction_request);
     $response = $request->execute();
