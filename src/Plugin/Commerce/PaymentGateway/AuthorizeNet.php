@@ -14,6 +14,7 @@ use Drupal\commerce_payment\PaymentMethodTypeManager;
 use Drupal\commerce_payment\PaymentTypeManager;
 use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\OnsitePaymentGatewayBase;
 use Drupal\commerce_price\Price;
+use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormStateInterface;
 use GuzzleHttp\ClientInterface;
@@ -34,7 +35,7 @@ use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
- * Provides the HostedFields payment gateway.
+ * Provides the Authorize.net payment gateway.
  *
  * @CommercePaymentGateway(
  *   id = "authorizenet",
@@ -72,8 +73,9 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
   /**
    * {@inheritdoc}
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entity_type_manager, PaymentTypeManager $payment_type_manager, PaymentMethodTypeManager $payment_method_type_manager, ClientInterface $client, LoggerInterface $logger) {
-    parent::__construct($configuration, $plugin_id, $plugin_definition, $entity_type_manager, $payment_type_manager, $payment_method_type_manager);
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entity_type_manager, PaymentTypeManager $payment_type_manager, PaymentMethodTypeManager $payment_method_type_manager, TimeInterface $time, ClientInterface $client, LoggerInterface $logger) {
+    parent::__construct($configuration, $plugin_id, $plugin_definition, $entity_type_manager, $payment_type_manager, $payment_method_type_manager, $time);
+
     $this->httpClient = $client;
     $this->logger = $logger;
     $this->authnetConfiguration = new Configuration([
@@ -94,6 +96,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       $container->get('entity_type.manager'),
       $container->get('plugin.manager.commerce_payment_type'),
       $container->get('plugin.manager.commerce_payment_method_type'),
+      $container->get('datetime.time'),
       $container->get('http_client'),
       $container->get('commerce_authnet.logger')
     );
@@ -172,6 +175,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
    */
   public function submitConfigurationForm(array &$form, FormStateInterface $form_state) {
     parent::submitConfigurationForm($form, $form_state);
+
     if (!$form_state->getErrors()) {
       $values = $form_state->getValue($form['#parents']);
       $this->configuration['api_login'] = $values['api_login'];
@@ -182,24 +186,15 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
 
   /**
    * {@inheritdoc}
-   *
-   * @todo Needs kernel test
    */
   public function createPayment(PaymentInterface $payment, $capture = TRUE) {
-    if ($payment->getState()->value != 'new') {
-      throw new \InvalidArgumentException('The provided payment is in an invalid state.');
-    }
+    $this->assertPaymentState($payment, ['new']);
     $payment_method = $payment->getPaymentMethod();
-    if (empty($payment_method)) {
-      throw new \InvalidArgumentException('The provided payment has no payment method referenced.');
-    }
-    if (REQUEST_TIME >= $payment_method->getExpiresTime()) {
-      throw new HardDeclineException('The provided payment method has expired');
-    }
+    $this->assertPaymentMethod($payment_method);
 
     $order = $payment->getOrder();
     $owner = $payment_method->getOwner();
-    $customer_id = $owner->commerce_remote_id->getByProvider('commerce_authnet_' . $this->getPluginId());
+    $customer_id = $this->getRemoteCustomerId($owner);
 
     $transactionRequest = new TransactionRequest([
       'transactionType' => ($capture) ? TransactionRequest::AUTH_CAPTURE : TransactionRequest::AUTH_ONLY,
@@ -239,26 +234,19 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       throw new HardDeclineException($message->getText());
     }
 
-    $payment->state = $capture ? 'capture_completed' : 'authorization';
+    $next_state = $capture ? 'completed' : 'authorization';
+    $payment->setState($next_state);
     $payment->setRemoteId($response->transactionResponse->transId);
-    $payment->setAuthorizedTime(REQUEST_TIME);
     // @todo Find out how long an authorization is valid, set its expiration.
-    if ($capture) {
-      $payment->setCapturedTime(REQUEST_TIME);
-    }
     $payment->save();
 
   }
 
   /**
    * {@inheritdoc}
-   *
-   * @todo Needs kernel test
    */
   public function capturePayment(PaymentInterface $payment, Price $amount = NULL) {
-    if ($payment->getState()->value != 'authorization') {
-      throw new \InvalidArgumentException('Only payments in the "authorization" state can be captured.');
-    }
+    $this->assertPaymentState($payment, ['authorization']);
     // If not specified, capture the entire amount.
     $amount = $amount ?: $payment->getAmount();
 
@@ -276,21 +264,16 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       throw new PaymentGatewayException($message->getText());
     }
 
-    $payment->state = 'capture_completed';
+    $payment->setState('completed');
     $payment->setAmount($amount);
-    $payment->setCapturedTime(REQUEST_TIME);
     $payment->save();
   }
 
   /**
    * {@inheritdoc}
-   *
-   * @todo Needs kernel test
    */
   public function voidPayment(PaymentInterface $payment) {
-    if ($payment->getState()->value != 'authorization') {
-      throw new \InvalidArgumentException('Only payments in the "authorization" state can be voided.');
-    }
+    $this->assertPaymentState($payment, ['authorization']);
 
     $request = new CreateTransactionRequest($this->authnetConfiguration, $this->httpClient);
     $request->setTransactionRequest(new TransactionRequest([
@@ -306,7 +289,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       throw new PaymentGatewayException($message->getText());
     }
 
-    $payment->state = 'authorization_voided';
+    $payment->setState('authorization_voided');
     $payment->save();
   }
 
@@ -314,17 +297,10 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
    * {@inheritdoc}
    */
   public function refundPayment(PaymentInterface $payment, Price $amount = NULL) {
-    if (!in_array($payment->getState()->value, ['capture_completed', 'capture_partially_refunded'])) {
-      throw new \InvalidArgumentException('Only payments in the "capture_completed" and "capture_partially_refunded" states can be refunded.');
-    }
-
+    $this->assertPaymentState($payment, ['completed', 'partially_refunded']);
     // If not specified, refund the entire amount.
     $amount = $amount ?: $payment->getAmount();
-    // Validate the requested amount.
-    $balance = $payment->getBalance();
-    if ($amount->greaterThan($balance)) {
-      throw new InvalidRequestException(sprintf("Can't refund more than %s.", $balance->__toString()));
-    }
+    $this->assertRefundAmount($payment, $amount);
 
     $request = new CreateTransactionRequest($this->authnetConfiguration, $this->httpClient);
     $transaction_request = new TransactionRequest([
@@ -350,10 +326,10 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $old_refunded_amount = $payment->getRefundedAmount();
     $new_refunded_amount = $old_refunded_amount->add($amount);
     if ($new_refunded_amount->lessThan($payment->getAmount())) {
-      $payment->state = 'capture_partially_refunded';
+      $payment->setState('partially_refunded');
     }
     else {
-      $payment->state = 'capture_refunded';
+      $payment->setState('refunded');
     }
 
     $payment->setRefundedAmount($new_refunded_amount);
@@ -404,7 +380,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
     $owner = $payment_method->getOwner();
     $customer_id = NULL;
     if ($owner->isAuthenticated()) {
-      $customer_id = $owner->commerce_remote_id->getByProvider('commerce_authnet_' . $this->getPluginId());
+      $customer_id = $this->getRemoteCustomerId($owner);
     }
 
     if ($customer_id) {
@@ -427,7 +403,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
           case 'E00040':
             // The customer record ID is invalid, remove it.
             // @note this should only happen in development scenarios.
-            $owner->commerce_remote_id->setByProvider('commerce_authnet_' . $this->getPluginId(), NULL);
+            $this->setRemoteCustomerId($owner, NULL);
             $owner->save();
             throw new InvalidResponseException('The customer record could not be found');
 
@@ -451,7 +427,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       else {
         $profile = new Profile([
           // @todo how to allow altering.
-          'merchantCustomerId' => $owner->id() . '_' . REQUEST_TIME,
+          'merchantCustomerId' => $owner->id() . '_' . $this->time->getRequestTime(),
           'email' => $owner->getEmail(),
         ]);
       }
@@ -488,8 +464,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
       }
 
       if ($owner) {
-        $customer_id = $customer_id = $response->customerProfileId;
-        $owner->commerce_remote_id->setByProvider('commerce_authnet_' . $this->getPluginId(), $customer_id);
+        $this->setRemoteCustomerId($owner, $response->customerProfileId);
         $owner->save();
       }
     }
@@ -551,7 +526,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
    */
   public function deletePaymentMethod(PaymentMethodInterface $payment_method) {
     $owner = $payment_method->getOwner();
-    $customer_id = $owner->commerce_remote_id->getByProvider('commerce_authnet_' . $this->getPluginId());
+    $customer_id = $this->getRemoteCustomerId($owner);
 
     $request = new DeleteCustomerPaymentProfileRequest($this->authnetConfiguration, $this->httpClient);
     $request->setCustomerProfileId($customer_id);
