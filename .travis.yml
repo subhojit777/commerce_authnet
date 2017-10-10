@@ -10,6 +10,8 @@ language: php
 
 sudo: false
 
+dist: precise
+
 php:
   - 7
   - 5.6
@@ -121,7 +123,8 @@ before_script:
   - drupal-ti before_script
 
 script:
-  - phpcs --standard=Drupal .
+  - phpcs --standard=Drupal src
+  - phpcs --standard=Drupal tests
   - drupal-ti script
 
 after_script:
