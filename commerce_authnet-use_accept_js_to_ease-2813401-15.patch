@@ -1,0 +1,707 @@
+diff --git a/commerce_authnet.libraries.yml b/commerce_authnet.libraries.yml
+new file mode 100644
+index 0000000..572c481
+--- /dev/null
++++ b/commerce_authnet.libraries.yml
+@@ -0,0 +1,18 @@
++accept-js-sandbox:
++  version: 1
++  js:
++    "https://jstest.authorize.net/v1/Accept.js": { type: external, attributes: { charset: utf-8 } }
++
++accept-js-production:
++  version: 1
++  js:
++    "https://js.authorize.net/v1/Accept.js": { type: external, attributes: { charset: utf-8 } }
++
++form:
++  version: VERSION
++  js:
++    js/commmerce_authnet.form.js: {}
++  dependencies:
++    - core/jquery
++    - core/drupal
++    - core/jquery.once
+diff --git a/js/commmerce_authnet.form.js b/js/commmerce_authnet.form.js
+new file mode 100644
+index 0000000..9d7fa91
+--- /dev/null
++++ b/js/commmerce_authnet.form.js
+@@ -0,0 +1,153 @@
++/**
++ * @file
++ * Javascript to generate Stripe token in PCI-compliant way.
++ */
++
++(function ($, Drupal, drupalSettings) {
++
++  'use strict';
++
++  /**
++   * Attaches the coomerceAuthorizwNet behavior.
++   * @type {{attach: Drupal.behaviors.commerceAuthorizeNetForm.attach}}
++   */
++  Drupal.behaviors.commerceAuthorizeNetForm = {
++    attach: function (context) {
++      var $form = $('.authorize-net-accept-js-form', context).closest('form').once('authorize-net-accept-js-processed');
++      if ($form.length === 0) {
++        return;
++      }
++      var settings = drupalSettings.commerceAuthorizeNet;
++      var last4 = '';
++      // to be used to temporarily store month and year.
++      var expiration = {};
++
++      // Adding the card number input.
++      var cardNumber = $('<input/>').attr({
++        id: 'credit-card-number',
++        type: 'tel',
++        placeholder: '•••• •••• •••• ••••',
++        autocomplete: 'off',
++        autocorrect: 'off',
++        autocapitalize: 'none'
++      });
++      $(settings.fieldsSelector.creditCardNumber.selector, $form).append(cardNumber);
++      // Adding expiration month and year inputs.
++      var expirationMonth = $('<input/>').attr({
++        id: 'expiration-month',
++        type: 'tel',
++        placeholder: 'MM',
++        autocomplete: 'off',
++        autocorrect: 'off',
++        autocapitalize: 'none',
++        maxlength: '2'
++      });
++      $(settings.fieldsSelector.expirationMonth.selector, $form).append(expirationMonth);
++      // Adding expiration month and year inputs.
++      var expirationYear = $('<input/>').attr({
++        id: 'expiration-year',
++        type: 'tel',
++        placeholder: 'YY',
++        autocomplete: 'off',
++        autocorrect: 'off',
++        autocapitalize: 'none',
++        maxlength: '2'
++      });
++      $(settings.fieldsSelector.expirationYear.selector, $form).append(expirationYear);
++      // Adding expiration month and year inputs.
++      var cvv = $('<input/>').attr({
++        id: 'cvv',
++        type: 'tel',
++        placeholder: '•••',
++        autocomplete: 'off',
++        autocorrect: 'off',
++        autocapitalize: 'none',
++        maxlength: '4'
++      });
++      $(settings.fieldsSelector.cvv.selector, $form).append(cvv);
++
++      // Sends the card data to Authorize.Net and receive the payment nonce in response.
++      var sendPaymentDataToAnet = function (event) {
++        var secureData = {};
++        var authData = {};
++        var cardData = {};
++
++        // Extract the card number, expiration date, and card code.
++        cardData.cardNumber = $('#credit-card-number').val();
++        cardData.month = $('#expiration-month').val();
++        cardData.year = $('#expiration-year').val();
++        cardData.cardCode = $('#cvv').val();
++        secureData.cardData = cardData;
++
++        // The Authorize.Net Client Key is used in place of the traditional Transaction Key. The Transaction Key
++        // is a shared secret and must never be exposed. The Client Key is a public key suitable for use where
++        // someone outside the merchant might see it.
++        authData.clientKey = settings.clientKey;
++        authData.apiLoginID = settings.apiLoginID;
++        secureData.authData = authData;
++
++        // Pass the card number and expiration date to Accept.js for submission to Authorize.Net.
++        Accept.dispatchData(secureData, responseHandler);
++      };
++
++      // Process the response from Authorize.Net to retrieve the two elements of the payment nonce.
++      // If the data looks correct, record the OpaqueData to the console and call the transaction processing function.
++      var responseHandler = function (response) {
++        if (response.messages.resultCode === 'Error') {
++          for (var i = 0; i < response.messages.message.length; i++) {
++            console.log(response.messages.message[i].code + ': ' + response.messages.message[i].text);
++          }
++          alert('acceptJS library error!');
++          event.preventDefault();
++        }
++        else {
++          console.log(response);
++          console.log(response.opaqueData);
++          processTransactionDataFromAnet(response.opaqueData);
++        }
++      };
++
++      var processTransactionDataFromAnet = function (responseData) {
++        $('.accept-js-data-descriptor', $form).val(responseData.dataDescriptor);
++        $('.accept-js-data-value', $form).val(responseData.dataValue);
++
++        $('.accept-js-data-last4', $form).val(last4);
++        $('.accept-js-data-month', $form).val(expiration.month);
++        $('.accept-js-data-year', $form).val(expiration.year);
++
++        // Submit the form.
++        $form.get(0).submit();
++        // @todo maybe check if we should unset the form values here so that they don't get submitted
++      };
++
++      // Form submit
++      $form.on('submit', function (event) {
++        // Disable the submit button to prevent repeated clicks.
++        $form.find('button').prop('disabled', true);
++
++        // store last4 digit
++        var credit_card_number = $('#credit-card-number').val();
++        last4 = credit_card_number.substr(credit_card_number.length - 4);
++        expiration = {
++          month: $('#expiration-month').val(),
++          year: $('#expiration-year').val()
++        };
++
++        // send payment data to anet.
++        sendPaymentDataToAnet(event);
++
++        // Prevent the form from submitting with the default action.
++        if ($('#credit-card-number-element', $form).length) {
++          return false;
++        }
++      });
++    }
++  };
++
++  $.extend(Drupal.theme, /** @lends Drupal.theme */{
++    commerceAuthorizeNetError: function (message) {
++      return $('<div class="messages messages--error"></div>').html(message);
++    }
++  });
++
++})(jQuery, Drupal, drupalSettings);
+diff --git a/ludwig.json b/ludwig.json
+index c133fe8..af0e8f6 100644
+--- a/ludwig.json
++++ b/ludwig.json
+@@ -1,8 +1,8 @@
+ {
+     "require": {
+         "commerceguys/authnet": {
+-            "version": "v1.0.0-beta1",
+-            "url": "https://github.com/commerceguys/authnet/archive/v1.0.0-beta1.zip"
++            "version": "v1.0.0-beta2",
++            "url": "https://github.com/commerceguys/authnet/archive/v1.0.0-beta2.zip"
+         }
+     }
+ }
+diff --git a/src/Plugin/Commerce/PaymentGateway/AuthorizeNet.php b/src/Plugin/Commerce/PaymentGateway/AuthorizeNet.php
+index 3b6068b..eacbcba 100644
+--- a/src/Plugin/Commerce/PaymentGateway/AuthorizeNet.php
++++ b/src/Plugin/Commerce/PaymentGateway/AuthorizeNet.php
+@@ -3,7 +3,6 @@
+ namespace Drupal\commerce_authnet\Plugin\Commerce\PaymentGateway;
+ 
+ use CommerceGuys\AuthNet\Response\ResponseInterface;
+-use Drupal\commerce_payment\CreditCard;
+ use Drupal\commerce_payment\Entity\PaymentInterface;
+ use Drupal\commerce_payment\Entity\PaymentMethodInterface;
+ use Drupal\commerce_payment\Exception\HardDeclineException;
+@@ -25,6 +24,7 @@ use CommerceGuys\AuthNet\DataTypes\BillTo;
+ use CommerceGuys\AuthNet\DataTypes\CreditCard as CreditCardDataType;
+ use CommerceGuys\AuthNet\DataTypes\MerchantAuthentication;
+ use CommerceGuys\AuthNet\DataTypes\Order as OrderDataType;
++use CommerceGuys\AuthNet\DataTypes\OpaqueData;
+ use CommerceGuys\AuthNet\DataTypes\PaymentProfile;
+ use CommerceGuys\AuthNet\DataTypes\Profile;
+ use CommerceGuys\AuthNet\DataTypes\TransactionRequest;
+@@ -38,8 +38,11 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
+  *
+  * @CommercePaymentGateway(
+  *   id = "authorizenet",
+- *   label = "Authorize.net",
++ *   label = "Authorize.net (Accept.js)",
+  *   display_label = "Authorize.net",
++ *   forms = {
++ *     "add-payment-method" = "Drupal\commerce_authnet\PluginForm\AuthorizeNet\PaymentMethodAddForm",
++ *   },
+  *   payment_method_types = {"credit_card"},
+  *   credit_card_types = {
+  *     "amex", "dinersclub", "discover", "jcb", "mastercard", "visa"
+@@ -81,6 +84,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+       'sandbox' => ($this->getMode() == 'test'),
+       'api_login' => $this->configuration['api_login'],
+       'transaction_key' => $this->configuration['transaction_key'],
++      'client_key' => $this->configuration['client_key'],
+     ]);
+   }
+ 
+@@ -108,6 +112,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+     return [
+       'api_login' => '',
+       'transaction_key' => '',
++      'client_key' => '',
+       'transaction_type' => TransactionRequest::AUTH_ONLY,
+     ] + parent::defaultConfiguration();
+   }
+@@ -123,12 +128,22 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+       '#default_value' => $this->configuration['api_login'],
+       '#required' => TRUE,
+     ];
++
+     $form['transaction_key'] = [
+       '#type' => 'textfield',
+       '#title' => $this->t('Transaction Key'),
+       '#default_value' => $this->configuration['transaction_key'],
+       '#required' => TRUE,
+     ];
++
++    $form['client_key'] = [
++      '#type' => 'textfield',
++      '#title' => $this->t('Client Key'),
++      '#description' => $this->t('Follow the instructions <a href="https://developer.authorize.net/api/reference/features/acceptjs.html#Obtaining_a_Public_Client_Key">here</a> to get a client key.'),
++      '#default_value' => $this->configuration['client_key'],
++      '#required' => TRUE,
++    ];
++
+     $form['transaction_type'] = [
+       '#type' => 'radios',
+       '#title' => $this->t('Default credit card transaction type'),
+@@ -179,6 +194,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+       $values = $form_state->getValue($form['#parents']);
+       $this->configuration['api_login'] = $values['api_login'];
+       $this->configuration['transaction_key'] = $values['transaction_key'];
++      $this->configuration['client_key'] = $values['client_key'];
+       $this->configuration['transaction_type'] = $values['transaction_type'];
+     }
+   }
+@@ -186,6 +202,20 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+   /**
+    * {@inheritdoc}
+    */
++  public function getClientKey() {
++    return $this->configuration['client_key'];
++  }
++
++  /**
++   * {@inheritdoc}
++   */
++  public function getApiLogin() {
++    return $this->configuration['api_login'];
++  }
++
++  /**
++   * {@inheritdoc}
++   */
+   public function createPayment(PaymentInterface $payment, $capture = TRUE) {
+     $this->assertPaymentState($payment, ['new']);
+     $payment_method = $payment->getPaymentMethod();
+@@ -193,26 +223,37 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+ 
+     $order = $payment->getOrder();
+     $owner = $payment_method->getOwner();
+-    $customer_id = $this->getRemoteCustomerId($owner);
++    $customer_profile_id = $this->getRemoteCustomerId($owner);
++
++    // Anonymous users get the customer profile and payment profile ids from
++    // the payment method remote id.
++    if (!$customer_profile_id) {
++      list($customer_profile_id, $payment_profile_id) = explode('|', $payment_method->getRemoteId());
++    }
++    else {
++      $payment_profile_id = $payment_method->getRemoteId();
++    }
+ 
+-    $transactionRequest = new TransactionRequest([
++    // Transaction request
++    $transaction_request = new TransactionRequest([
+       'transactionType' => ($capture) ? TransactionRequest::AUTH_CAPTURE : TransactionRequest::AUTH_ONLY,
+       'amount' => $payment->getAmount()->getNumber(),
+     ]);
++
+     // @todo update SDK to support data type like this.
+-    $transactionRequest->addDataType(new Profile([
+-      'customerProfileId' => $customer_id,
+-      'paymentProfile' => [
+-        'paymentProfileId' => $payment_method->getRemoteId(),
+-      ],
+-    ]));
+-    $transactionRequest->addOrder(new OrderDataType([
++    // Initializing the profile to charge and adding it to the transaction.
++    $profile_to_charge = new Profile(['customerProfileId' => $customer_profile_id]);
++    $profile_to_charge->addData('paymentProfile', ['paymentProfileId' => $payment_profile_id]);
++    $transaction_request->addData('profile', $profile_to_charge->toArray());
++
++    // Adding order information to the transaction
++    $transaction_request->addOrder(new OrderDataType([
+       'invoiceNumber' => $order->getOrderNumber(),
+     ]));
+-    $transactionRequest->addData('customerIP', $order->getIpAddress());
++    $transaction_request->addData('customerIP', $order->getIpAddress());
+ 
+     $request = new CreateTransactionRequest($this->authnetConfiguration, $this->httpClient);
+-    $request->setTransactionRequest($transactionRequest);
++    $request->setTransactionRequest($transaction_request);
+     $response = $request->execute();
+ 
+     if ($response->getResultCode() != 'Ok') {
+@@ -341,16 +382,32 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+    * @todo Needs kernel test
+    */
+   public function createPaymentMethod(PaymentMethodInterface $payment_method, array $payment_details) {
++    $required_keys = [
++      'data_descriptor', 'data_value'
++    ];
++    foreach ($required_keys as $required_key) {
++      if (empty($payment_details[$required_key])) {
++        throw new \InvalidArgumentException(sprintf('$payment_details must contain the %s key.', $required_key));
++      }
++    }
++
+     $remote_payment_method = $this->doCreatePaymentMethod($payment_method, $payment_details);
+ 
+-    $payment_method->card_type = $remote_payment_method['card_type'];
++    // @todo Make payment methods reusable. Currently they represent 15min nonce.
++    // @see https://community.developer.authorize.net/t5/Integration-and-Testing/Question-about-tokens-transaction-keys/td-p/56689
++    // "You are correct that the Accept.js payment nonce must be used within 15 minutes before it expires."
++    // Meet specific requirements for reusable, permanent methods.
++    $payment_method->setReusable(FALSE);
++    $payment_method->card_type = $this->mapCreditCardType($remote_payment_method['card_type']);
+     $payment_method->card_number = $remote_payment_method['last4'];
+     $payment_method->card_exp_month = $remote_payment_method['expiration_month'];
+     $payment_method->card_exp_year = $remote_payment_method['expiration_year'];
+     $payment_method->setRemoteId($remote_payment_method['token']);
+-    $expires = CreditCard::calculateExpirationTimestamp($remote_payment_method['expiration_month'], $remote_payment_method['expiration_year']);
+-    $payment_method->setExpiresTime($expires);
+ 
++    // OpaqueData expire after 15min. We reduce that time by 5s to account for the
++    // time it took to do the server request after the JS tokenization.
++    $expires = $this->time->getRequestTime() + (15 * 60) - 5;
++    $payment_method->setExpiresTime($expires);
+     $payment_method->save();
+   }
+ 
+@@ -375,17 +432,18 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+    *   - expiration_year: The expiration year.
+    */
+   protected function doCreatePaymentMethod(PaymentMethodInterface $payment_method, array $payment_details) {
+-    $card_type = CreditCard::detectType($payment_details['number'])->getId();
+     $owner = $payment_method->getOwner();
+-    $customer_id = NULL;
+-    if ($owner->isAuthenticated()) {
+-      $customer_id = $this->getRemoteCustomerId($owner);
++    $customer_profile_id = NULL;
++    $customer_data = [];
++    if ($owner && !$owner->isAnonymous()) {
++      $customer_profile_id = $this->getRemoteCustomerId($owner);
++      $customer_data['email'] = $owner->getEmail();
+     }
+ 
+-    if ($customer_id) {
+-      $payment_profile = $this->buildCustomerPaymentProfile($payment_method, $payment_details, $customer_id);
++    if ($customer_profile_id) {
++      $payment_profile = $this->buildCustomerPaymentProfile($payment_method, $payment_details, $customer_profile_id);
+       $request = new CreateCustomerPaymentProfileRequest($this->authnetConfiguration, $this->httpClient);
+-      $request->setCustomerProfileId($customer_id);
++      $request->setCustomerProfileId($customer_profile_id);
+       $request->setPaymentProfile($payment_profile);
+       $response = $request->execute();
+ 
+@@ -427,7 +485,7 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+         $profile = new Profile([
+           // @todo how to allow altering.
+           'merchantCustomerId' => $owner->id() . '_' . $this->time->getRequestTime(),
+-          'email' => $owner->getEmail(),
++          'email' => $payment_details['customer_email'],
+         ]);
+       }
+       $profile->addPaymentProfile($this->buildCustomerPaymentProfile($payment_method, $payment_details));
+@@ -436,16 +494,17 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+ 
+       if ($response->getResultCode() == 'Ok') {
+         $payment_profile_id = $response->customerPaymentProfileIdList->numericString;
++        $customer_profile_id = $response->customerProfileId;
+       }
+       else {
+         // Handle duplicate.
+         if ($response->getMessages()[0]->getCode() == 'E00039') {
+           $result = array_filter(explode(' ', $response->getMessages()[0]->getText()), 'is_numeric');
+-          $customer_id = reset($result);
++          $customer_profile_id = reset($result);
+ 
+-          $payment_profile = $this->buildCustomerPaymentProfile($payment_method, $payment_details, $customer_id);
++          $payment_profile = $this->buildCustomerPaymentProfile($payment_method, $payment_details, $customer_profile_id);
+           $request = new CreateCustomerPaymentProfileRequest($this->authnetConfiguration, $this->httpClient);
+-          $request->setCustomerProfileId($customer_id);
++          $request->setCustomerProfileId($customer_profile_id);
+           $request->setPaymentProfile($payment_profile);
+           $response = $request->execute();
+ 
+@@ -463,17 +522,41 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+       }
+ 
+       if ($owner) {
+-        $this->setRemoteCustomerId($owner, $response->customerProfileId);
++        $this->setRemoteCustomerId($owner, $customer_profile_id);
+         $owner->save();
+       }
+     }
+ 
++    // Maybe we should make sure that this is going to be a string before calling an explode on it.
++    if ($owner->isAuthenticated()) {
++      $validation_direct_response = explode(',', $response->contents()->validationDirectResponse);
++
++      // when user is authenticated we can retrieve customer profile from the user entity so
++      // we only need to save the payment profile id as token.
++      $token = $payment_profile_id;
++    }
++    else {
++      // somehow for anonymous user it's returning this way
++      $validation_direct_response = explode(',', $response->contents()->validationDirectResponseList->string);
++
++      // For anonymous user we use both customer id
++      // and payment profile id as token.
++      $token = $customer_profile_id . '|' . $payment_profile_id;
++    }
++
++    // Assuming the explode is working card_type is at index 51 and mask card number at index 50
++    // on the form XXXX1111. Not sure if we should use this to get last4 and remove the one in JS.
++    // The explode doesn't work as expected I guess we are screwed.
++    $card_type = $validation_direct_response[51];
++
+     return [
+-      'token' => $payment_profile_id,
++      'token' => $token,
++      'data_descriptor' => $payment_details['data_descriptor'],
++      'data_value' => $payment_details['data_value'],
+       'card_type' => $card_type,
+-      'last4' => substr($payment_details['number'], -4),
+-      'expiration_month' => $payment_details['expiration']['month'],
+-      'expiration_year' => $payment_details['expiration']['year'],
++      'last4' => $payment_details['last4'],
++      'expiration_month' => $payment_details['expiration_month'],
++      'expiration_year' => $payment_details['expiration_year'],
+     ];
+   }
+ 
+@@ -491,13 +574,9 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+    *   The payment profile data type.
+    */
+   protected function buildCustomerPaymentProfile(PaymentMethodInterface $payment_method, array $payment_details, $customer_id = NULL) {
+-    $payment_profile = new PaymentProfile([
+-      // @todo how to allow customizing this.
+-      'customerType' => 'individual',
+-    ]);
+     /** @var \Drupal\address\AddressInterface $address */
+     $address = $payment_method->getBillingProfile()->address->first();
+-    $payment_profile->addBillTo(new BillTo([
++    $bill_to = new BillTo([
+       // @todo how to allow customizing this.
+       'firstName' => $address->getGivenName(),
+       'lastName' => $address->getFamilyName(),
+@@ -505,16 +584,24 @@ class AuthorizeNet extends OnsitePaymentGatewayBase implements AuthorizeNetInter
+       'address' => $address->getAddressLine1() . ' ' . $address->getAddressLine2(),
+       // @todo Use locality  / administrative area codes where available.
+       'city' => $address->getLocality(),
+-      'state' => $address->getAdministrativeArea(),
++      //'state' => $address->getAdministrativeArea(),
+       'zip' => $address->getPostalCode(),
+       'country' => $address->getCountryCode(),
+       // @todo support adding phone and fax
+-    ]));
+-    $payment_profile->addPayment(new CreditCardDataType([
+-      'cardNumber' => $payment_details['number'],
+-      'expirationDate' => $payment_details['expiration']['year'] . '-' . str_pad($payment_details['expiration']['month'], 2, '0', STR_PAD_LEFT),
+-      'cardCode' => $payment_details['security_code'],
+-    ]));
++    ]);
++
++    $payment = new OpaqueData([
++      'dataDescriptor' => $payment_details['data_descriptor'],
++      'dataValue' => $payment_details['data_value'],
++    ]);
++
++    $payment_profile = new PaymentProfile([
++      // @todo how to allow customizing this.
++      'customerType' => 'individual',
++    ]);
++    $payment_profile->addBillTo($bill_to);
++    $payment_profile->addPayment($payment);
++
+     return $payment_profile;
+   }
+ 
+diff --git a/src/Plugin/Commerce/PaymentGateway/AuthorizeNetInterface.php b/src/Plugin/Commerce/PaymentGateway/AuthorizeNetInterface.php
+index 0e5e37d..2595112 100644
+--- a/src/Plugin/Commerce/PaymentGateway/AuthorizeNetInterface.php
++++ b/src/Plugin/Commerce/PaymentGateway/AuthorizeNetInterface.php
+@@ -11,4 +11,24 @@ use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\SupportsRefundsInterf
+  */
+ interface AuthorizeNetInterface extends OnsitePaymentGatewayInterface, SupportsAuthorizationsInterface, SupportsRefundsInterface {
+ 
++  /**
++   * Get the AuthorizeNet API Client Key set for the payment gateway.
++   *
++   * Used by the add-payment-method plugin form.
++   *
++   * @return string
++   *   The AuthorizeNet Client Key.
++   */
++  public function getClientKey();
++
++  /**
++   * Get the AuthorizeNet API Client Key set for the payment gateway.
++   *
++   * Used by the add-payment-method plugin form.
++   *
++   * @return string
++   *   The AuthorizeNet Client Key.
++   */
++  public function getApiLogin();
++
+ }
+diff --git a/src/PluginForm/AuthorizeNet/PaymentMethodAddForm.php b/src/PluginForm/AuthorizeNet/PaymentMethodAddForm.php
+new file mode 100644
+index 0000000..653b918
+--- /dev/null
++++ b/src/PluginForm/AuthorizeNet/PaymentMethodAddForm.php
+@@ -0,0 +1,138 @@
++<?php
++
++namespace Drupal\commerce_authnet\PluginForm\AuthorizeNet;
++
++use Drupal\commerce_payment\PluginForm\PaymentMethodAddForm as BasePaymentMethodAddForm;
++use Drupal\Core\Form\FormStateInterface;
++
++class PaymentMethodAddForm extends BasePaymentMethodAddForm {
++
++  /**
++   * {@inheritdoc}
++   */
++  public function buildCreditCardForm(array $element, FormStateInterface $form_state) {
++    // Alter the form with AuthorizeNet Accept JS specific needs.
++    $element['#attributes']['class'][] = 'authorize-net-accept-js-form';
++    /** @var \Drupal\commerce_authnet\Plugin\Commerce\PaymentGateway\AuthorizeNetInterface $plugin */
++    $plugin = $this->plugin;
++
++    if ($plugin->getMode() == 'test') {
++      $element['#attached']['library'][] = 'commerce_authnet/accept-js-sandbox';
++    }
++    else {
++      $element['#attached']['library'][] = 'commerce_authnet/accept-js-production';
++    }
++    $element['#attached']['library'][] = 'commerce_authnet/form';
++    $element['#attached']['drupalSettings']['commerceAuthorizeNet'] = [
++      'clientKey' => $plugin->getClientKey(),
++      'apiLoginID' => $plugin->getApiLogin(),
++      'fieldsSelector' => [
++        'creditCardNumber' => ['selector' => '#credit-card-number-element'],
++        'cvv' => ['selector' => '#cvv-element'],
++        'expirationMonth' => ['selector' => '#expiration-month-element'],
++        'expirationYear' => ['selector' => '#expiration-year-element'],
++      ],
++    ];
++
++    // Fields placeholder to be built by the JS
++    $element['card_number'] = [
++      '#type' => 'item',
++      '#title' => t('Card number'),
++      '#label_attributes' => [
++        'class' => ['js-form-required', 'form-required'],
++      ],
++      '#markup' => '<div id="credit-card-number-element" class="accept-js-form-element"></div>',
++    ];
++    $element['expiration'] = [
++      '#type' => 'container',
++      '#attributes' => [
++        'class' => ['credit-card-form__expiration'],
++      ],
++    ];
++    $element['expiration']['month'] = [
++      '#type' => 'item',
++      '#title' => t('Month'),
++      '#label_attributes' => [
++        'class' => ['js-form-required', 'form-required'],
++      ],
++      '#markup' => '<div id="expiration-month-element" class="accept-js-form-element"></div>',
++    ];
++    $element['expiration']['divider'] = [
++      '#type' => 'item',
++      '#title' => '',
++      '#markup' => '<span class="credit-card-form__divider">/</span>',
++    ];
++    $element['expiration']['year'] = [
++      '#type' => 'item',
++      '#title' => t('Year'),
++      '#label_attributes' => [
++        'class' => ['js-form-required', 'form-required'],
++      ],
++      '#markup' => '<div id="expiration-year-element" class="accept-js-form-element"></div>',
++    ];
++    $element['cvv'] = [
++      '#type' => 'item',
++      '#title' => t('CVV'),
++      '#label_attributes' => [
++        'class' => ['js-form-required', 'form-required'],
++      ],
++      '#markup' => '<div id="cvv-element" class="accept-js-form-element"></div>',
++    ];
++
++    // Populated by the JS library after receiving a response from AuthorizeNet.
++    $element['data_descriptor'] = [
++      '#type' => 'hidden',
++      '#attributes' => [
++        'class' => ['accept-js-data-descriptor'],
++      ],
++    ];
++    $element['data_value'] = [
++      '#type' => 'hidden',
++      '#attributes' => [
++        'class' => ['accept-js-data-value'],
++      ],
++    ];
++    $element['last4'] = [
++      '#type' => 'hidden',
++      '#attributes' => [
++        'class' => ['accept-js-data-last4'],
++      ],
++    ];
++    $element['expiration_month'] = [
++      '#type' => 'hidden',
++      '#attributes' => [
++        'class' => ['accept-js-data-month'],
++      ],
++    ];
++    $element['expiration_year'] = [
++      '#type' => 'hidden',
++      '#attributes' => [
++        'class' => ['accept-js-data-year'],
++      ],
++    ];
++
++    return $element;
++  }
++
++  /**
++   * {@inheritdoc}
++   */
++  protected function validateCreditCardForm(array &$element, FormStateInterface $form_state) {
++    // The JS library performs its own validation.
++  }
++
++  /**
++   * {@inheritdoc}
++   */
++  public function submitCreditCardForm(array $element, FormStateInterface $form_state) {
++    // The payment gateway plugin will process the submitted payment details.
++    $values = $form_state->getValues();
++    if (!empty($values['contact_information']['email'])) {
++      // then we are dealing with anonymous user. Adding a customer email.
++      $payment_details = $values['payment_information']['add_payment_method']['payment_details'];
++      $payment_details['customer_email'] = $values['contact_information']['email'];
++      $form_state->setValue(['payment_information', 'add_payment_method', 'payment_details'], $payment_details);
++    }
++  }
++
++}

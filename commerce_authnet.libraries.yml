@@ -1,0 +1,18 @@
+accept-js-sandbox:
+  version: 1
+  js:
+    "https://jstest.authorize.net/v1/Accept.js": { type: external, attributes: { charset: utf-8 } }
+
+accept-js-production:
+  version: 1
+  js:
+    "https://js.authorize.net/v1/Accept.js": { type: external, attributes: { charset: utf-8 } }
+
+form:
+  version: VERSION
+  js:
+    js/commmerce_authnet.form.js: {}
+  dependencies:
+    - core/jquery
+    - core/drupal
+    - core/jquery.once

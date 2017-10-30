@@ -11,4 +11,24 @@ use Drupal\commerce_payment\Plugin\Commerce\PaymentGateway\SupportsRefundsInterf
  */
 interface AuthorizeNetInterface extends OnsitePaymentGatewayInterface, SupportsAuthorizationsInterface, SupportsRefundsInterface {
 
+  /**
+   * Get the AuthorizeNet API Client Key set for the payment gateway.
+   *
+   * Used by the add-payment-method plugin form.
+   *
+   * @return string
+   *   The AuthorizeNet Client Key.
+   */
+  public function getClientKey();
+
+  /**
+   * Get the AuthorizeNet API Client Key set for the payment gateway.
+   *
+   * Used by the add-payment-method plugin form.
+   *
+   * @return string
+   *   The AuthorizeNet Client Key.
+   */
+  public function getApiLogin();
+
 }
